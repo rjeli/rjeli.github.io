@@ -1,0 +1,27 @@
+---
+layout: default
+---
+
+<h1>rjeli</h1>
+
+<p>
+Hi, I'm Eli. I'm a software engineer currently living in San Francisco.
+</p>
+
+<p>
+<a href="https://github.com/rjeli">github</a>
+<a href="mailto:eli@rje.li">email</a>
+</p>
+
+<p>
+<ul>
+    {% for post in site.posts %}
+    <li>
+        {{ post.date | date: '%Y-%m-%d' }}
+        <a href="{{ post.url }}">
+             {{ post.title }}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+</p>
