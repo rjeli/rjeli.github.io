@@ -1,6 +1,6 @@
 ---
 layout: post
-title: 'Lab Notes: Inverse Raytracing for Localization with NeRF'
+title: 'Lab Notes: Inverse raytracing for localization with NeRF'
 ---
 
 I was very impressed by this paper released a few days ago: [Representing Scenes as Neural Radiance Fields for View Synthesis][nerf], or NeRF for short. Check it out:
