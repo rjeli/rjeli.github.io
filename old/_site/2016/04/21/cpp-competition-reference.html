@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang=en>
+    <head>
+        <title>rje.li</title>
+        <style>
+        body {
+            max-width: 800px;
+            margin-left: 40px;
+            margin-right: 40px;
+            font-family: serif;
+        }
+        </style>
+    </head>
+    <body>
+        <h1>C++ Competition Reference</h1>
+
+<p>This post will cover basic I/O and data structures for use in programming competitions.</p>
+
+<p>C++ is an incredibly complex language, but you can be productive and solve constrained problems by ignoring 99% of the language and using the STL.</p>
+
+<p>C++ is the best choice for programming competitions. It is much faster than Java, and if you study well, you will find it is not much more difficult to write than Java.</p>
+
+<p>Make sure the competition you are attending has enabled C++11 compilation.</p>
+
+<p>You can include all STL headers at once by including &lt;bits/stdc++.h&gt;. So, your skeleton program will look something like the following.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="cp">#include</span> <span class="cpf">&lt;bits/stdc++.h&gt;</span><span class="cp">
+</span><span class="k">using</span> <span class="k">namespace</span> <span class="n">std</span><span class="p">;</span>
+
+<span class="kt">int</span>
+<span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<h1 id="input">Input</h1>
+
+<p>If input is given as a file argument:</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">int</span>
+<span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span> <span class="o">**</span><span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">ifstream</span> <span class="n">fin</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span>
+	<span class="k">while</span> <span class="p">(</span><span class="o">!</span><span class="n">fin</span><span class="p">.</span><span class="n">eof</span><span class="p">())</span> <span class="p">{</span>
+	      <span class="n">fin</span> <span class="o">&gt;&gt;</span> <span class="c1">// ...</span>
+	<span class="p">}</span>
+	
+	<span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>But, usually you can just read from STDIN.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">int</span>
+<span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="kt">int</span> <span class="n">n</span><span class="p">;</span>
+	<span class="n">cin</span> <span class="o">&gt;&gt;</span> <span class="n">n</span><span class="p">;</span>
+	<span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span> <span class="n">i</span><span class="o">&lt;</span><span class="n">n</span><span class="p">;</span> <span class="o">++</span><span class="n">i</span><span class="p">)</span> <span class="p">{</span>
+		<span class="n">cin</span> <span class="o">&gt;&gt;</span> <span class="c1">// ...</span>
+	<span class="p">}</span>
+	
+	<span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<h1 id="vectors">Vectors</h1>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span> <span class="n">xs</span><span class="p">;</span>
+<span class="n">xs</span><span class="p">.</span><span class="n">resize</span><span class="p">(</span><span class="n">n</span><span class="p">);</span>
+<span class="n">xs</span><span class="p">.</span><span class="n">resize</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span></code></pre></figure>
+
+<p>If it becomes a smaller size, the extra values are destroyed. If it becomes a larger size, either the extra cells will be filled with the provided argument, or in its absence,	with the default constructor of the type. Primitive types such as int will be filled with garbage.</p>
+
+<h1 id="iteration">Iteration:</h1>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="c1">// By value, i.e. immutable</span>
+<span class="k">for</span> <span class="p">(</span><span class="k">auto</span> <span class="n">x</span> <span class="o">:</span> <span class="n">xs</span><span class="p">)</span>
+	<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">x</span><span class="p">;</span>
+
+<span class="c1">// By reference, i.e. mutable</span>
+<span class="k">for</span> <span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span> <span class="n">x</span> <span class="o">:</span> <span class="n">xs</span><span class="p">)</span>
+	<span class="n">x</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span></code></pre></figure>
+
+<p>Stack operations:</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="c1">// Push</span>
+<span class="n">xs</span><span class="p">.</span><span class="n">push_back</span><span class="p">(</span><span class="mi">100</span><span class="p">);</span>
+
+<span class="c1">// Peek/Pop</span>
+<span class="kt">int</span> <span class="n">x</span> <span class="o">=</span> <span class="n">xs</span><span class="p">.</span><span class="n">back</span><span class="p">()</span>
+<span class="n">xs</span><span class="p">.</span><span class="n">pop_back</span><span class="p">();</span>
+
+<span class="c1">// Flush</span>
+<span class="k">while</span> <span class="p">(</span><span class="o">!</span><span class="n">xs</span><span class="p">.</span><span class="n">empty</span><span class="p">())</span> <span class="p">{</span>
+	<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">xs</span><span class="p">.</span><span class="n">back</span><span class="p">();</span>
+	<span class="n">xs</span><span class="p">.</span><span class="n">pop_back</span><span class="p">();</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Note that these stack operations are efficient and will not cause too much reallocation because vector maintains a reserved amount of memory.</p>
+
+<p>Convenient methods:</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">xs</span><span class="p">.</span><span class="n">size</span><span class="p">()</span> <span class="c1">// number of elements</span>
+<span class="n">xs</span><span class="p">.</span><span class="n">clear</span><span class="p">()</span> <span class="c1">// same as xs.resize(0)</span></code></pre></figure>
+
+<h1 id="sets">Sets</h1>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">unordered_set</span><span class="o">&lt;</span><span class="n">string</span><span class="o">&gt;</span> <span class="n">s</span><span class="p">;</span>
+<span class="n">s</span><span class="p">.</span><span class="n">insert</span><span class="p">(</span><span class="s">"foo"</span><span class="p">);</span>
+<span class="n">s</span><span class="p">.</span><span class="n">insert</span><span class="p">(</span><span class="s">"bar"</span><span class="p">);</span></code></pre></figure>
+
+<p>Test for membership by searching for the element.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">string</span> <span class="n">el</span> <span class="o">=</span> <span class="n">s</span><span class="p">.</span><span class="n">find</span><span class="p">(</span><span class="s">"foo"</span><span class="p">);</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">el</span> <span class="o">==</span> <span class="n">s</span><span class="p">.</span><span class="n">end</span><span class="p">())</span>
+	<span class="c1">// el not in s</span>
+<span class="k">else</span>
+	<span class="c1">// el in s</span></code></pre></figure>
+
+<p>Remove by erasing the obtained iterator.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">s</span><span class="p">.</span><span class="n">erase</span><span class="p">(</span><span class="n">el</span><span class="p">);</span></code></pre></figure>
+
+<p>Convenient methods:</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">s</span><span class="p">.</span><span class="n">count</span><span class="p">();</span> <span class="c1">// number of items</span>
+<span class="n">s</span><span class="p">.</span><span class="n">clear</span><span class="p">();</span> <span class="c1">// erase all items</span></code></pre></figure>
+
+<p>Iteration is identical to the vector.</p>
+
+<h1 id="hash-maps">Hash Maps</h1>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">unordered_map</span><span class="o">&lt;</span><span class="n">string</span><span class="p">,</span><span class="kt">int</span><span class="o">&gt;</span> <span class="n">m</span><span class="p">;</span>
+<span class="n">m</span><span class="p">[</span><span class="s">"foo"</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="n">m</span><span class="p">[</span><span class="s">"bar"</span><span class="p">]</span> <span class="o">=</span> <span class="mi">2</span><span class="p">;</span></code></pre></figure>
+
+<p>Iteration:</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">for</span> <span class="p">(</span><span class="k">auto</span><span class="o">&amp;</span> <span class="n">x</span> <span class="o">:</span> <span class="n">m</span><span class="p">)</span>
+	<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">x</span><span class="p">.</span><span class="n">first</span> <span class="o">&lt;&lt;</span> <span class="s">": "</span> <span class="o">&lt;&lt;</span> <span class="n">x</span><span class="p">.</span><span class="n">second</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span></code></pre></figure>
+
+<h1 id="transformations">Transformations</h1>
+
+<p>I recommend defining a macro to make working with collections easier.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="cp">#define ALL(c) c.begin(),c.end()</span></code></pre></figure>
+
+<p>Here is the example collection:</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span> <span class="n">xs</span> <span class="o">=</span> <span class="p">{</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span> <span class="p">};</span></code></pre></figure>
+
+<h3 id="sort">Sort</h3>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">sort</span><span class="p">(</span><span class="n">xs</span><span class="p">);</span></code></pre></figure>
+
+<h3 id="map">Map</h3>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">transform</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="n">xs</span><span class="p">.</span><span class="n">begin</span><span class="p">(),</span> <span class="p">[](</span><span class="kt">int</span> <span class="n">x</span><span class="p">){</span>
+	<span class="k">return</span> <span class="n">x</span><span class="o">+</span><span class="mi">1</span><span class="p">;</span>
+<span class="p">});</span></code></pre></figure>
+
+<h3 id="filter">Filter</h3>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">auto</span> <span class="n">is_odd</span> <span class="o">=</span> <span class="p">[](</span><span class="kt">int</span> <span class="n">x</span><span class="p">){</span> <span class="k">return</span> <span class="n">x</span><span class="o">%</span><span class="mi">2</span><span class="p">;</span> <span class="p">};</span>
+<span class="n">remove_if</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="n">is_odd</span><span class="p">);</span></code></pre></figure>
+
+<h3 id="reduce">Reduce</h3>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">auto</span> <span class="n">sum_reducer</span> <span class="o">=</span> <span class="p">[](</span><span class="kt">double</span> <span class="n">a</span><span class="p">,</span> <span class="kt">double</span> <span class="n">b</span><span class="p">){</span>
+	<span class="k">return</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="p">;</span>
+<span class="p">});</span>
+<span class="n">accumulate</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">sum_reducer</span><span class="p">);</span></code></pre></figure>
+
+<h3 id="predicates">Predicates</h3>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">bool</span> <span class="n">all_odd</span> <span class="o">=</span> <span class="n">all_of</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="n">is_odd</span><span class="p">);</span>
+<span class="kt">bool</span> <span class="n">any_odd</span> <span class="o">=</span> <span class="n">any_of</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="n">is_odd</span><span class="p">);</span>
+<span class="kt">bool</span> <span class="n">none_odd</span> <span class="o">=</span> <span class="n">none_of</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">xs</span><span class="p">),</span> <span class="n">is_odd</span><span class="p">);</span></code></pre></figure>
+
+<h3 id="permutations">Permutations</h3>
+
+<p>This is extremely useful for bruteforcing. Make sure the collection is sorted beforehand.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="k">do</span> <span class="p">{</span>
+	<span class="k">for</span> <span class="p">(</span><span class="k">auto</span> <span class="n">x</span> <span class="o">:</span> <span class="n">xs</span><span class="p">)</span> <span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">x</span><span class="p">;</span>
+	<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
+<span class="p">}</span> <span class="k">while</span> <span class="p">(</span><span class="n">next_permutation</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">xs</span><span class="p">)));</span></code></pre></figure>
+
+<h3 id="set-operations">Set operations</h3>
+
+<p>You can use these on vectors as well, but be sure to sort them beforehand.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="n">unordered_set</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span> <span class="n">s1</span><span class="p">,</span> <span class="n">s2</span><span class="p">,</span> <span class="n">res</span><span class="p">;</span>
+<span class="n">set_difference</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">s1</span><span class="p">),</span> <span class="n">ALL</span><span class="p">(</span><span class="n">s2</span><span class="p">),</span> <span class="n">inserter</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">res</span><span class="p">.</span><span class="n">end</span><span class="p">()));</span>
+<span class="n">set_intersection</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">s1</span><span class="p">),</span> <span class="n">ALL</span><span class="p">(</span><span class="n">s2</span><span class="p">),</span> <span class="n">inserter</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">res</span><span class="p">.</span><span class="n">end</span><span class="p">()));</span>
+<span class="n">set_union</span><span class="p">(</span><span class="n">ALL</span><span class="p">(</span><span class="n">s1</span><span class="p">),</span> <span class="n">ALL</span><span class="p">(</span><span class="n">s2</span><span class="p">),</span> <span class="n">inserter</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">res</span><span class="p">.</span><span class="n">end</span><span class="p">()));</span></code></pre></figure>
+
+
+
+<p>
+    <a href='/'>← back</a>
+</p>
+
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+    tex2jax: {
+        inlineMath: [['$','$'], ['\\(','\\)']],
+        processEscapes: true
+    }
+});
+</script>
+<script type="text/javascript" async
+  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML">
+</script>
+
+        <script data-goatcounter="https://rjeli.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+    </body>
+</html>

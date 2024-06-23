@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang=en>
+    <head>
+        <title>rje.li</title>
+        <style>
+        body {
+            max-width: 800px;
+            margin-left: 40px;
+            margin-right: 40px;
+            font-family: serif;
+        }
+        </style>
+    </head>
+    <body>
+        <h1>Dwarf Fortress on Slackware 14.1</h1>
+
+<p>This post will explain how to run Dwarf Fortress on 64 bit Slackware 14.1.</p>
+
+<p>Enable multilib by following the instructions <a href="http://alien.slackbook.org/dokuwiki/doku.php?id=slackware:multilib">here</a>.</p>
+
+<p>The default multilib installation doesn’t include OpenAL, so we’ll need to compile that for 32 bit separately.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>wget http://www.slackware.com/~alien/slackbuilds/OpenAL/pkg/14.1/OpenAL-1.17.1-i486-1alien.tgz
+convertpkg-compat32 -i OpenAL-1.17.1-i486-1alien.tgz
+upgradepkg --install-new /tmp/OpenAL-compat32-1.17.1-i486-1aliencompat32.txz
+</code></pre></div></div>
+
+<p>Download and run the Linux version of <a href="http://www.bay12games.com/dwarves/">Dwarf Fortress</a>.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tar xvf df_*_linux.tar.bz2
+cd df_linux
+./df
+</code></pre></div></div>
+
+<p>Thanks to <a href="http://www.slackware.com/~alien/">AlienBOB</a> for providing these resources.</p>
+
+
+
+<p>
+    <a href='/'>← back</a>
+</p>
+
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+    tex2jax: {
+        inlineMath: [['$','$'], ['\\(','\\)']],
+        processEscapes: true
+    }
+});
+</script>
+<script type="text/javascript" async
+  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML">
+</script>
+
+        <script data-goatcounter="https://rjeli.goatcounter.com/count"
+            async src="//gc.zgo.at/count.js"></script>
+    </body>
+</html>
