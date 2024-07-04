@@ -1,7 +1,0 @@
-# Site settings
-title: rje.li
-
-# Build settings
-markdown: kramdown
-plugins:
-  - jekyll-feed
