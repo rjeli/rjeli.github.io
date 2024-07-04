@@ -1,0 +1,731 @@
+
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+        <title>Algebraic FFTs</title>
+        <link rel="stylesheet" href="/res/style.css" />
+        <script 
+          type="text/javascript"
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
+          ></script>
+    </head>
+    <body>
+        <h2><a href="/">rje.li</a></h2>
+        <h1 id="algebraic-ffts">Algebraic FFTs</h1>
+<p>The <a
+href="https://en.wikipedia.org/wiki/Fast_Fourier_transform">FFT</a>
+(“Fast Fourier Transform”) is one of the greatest algorithms of all
+time, but most have only seen it in its classical form, as transforming
+discrete samples in the time domain to their complex representation in
+the frequency domain. Its cousin the <a
+href="https://en.wikipedia.org/wiki/Discrete_Fourier_transform_over_a_ring#Number-theoretic_transform">NTT</a>
+(“Number Theoretic Transform”), which interpolates polynomials on
+modular numbers, is much less well known but still in common use, mostly
+for cryptography.</p>
+<p>However, even more exotic “FFTs” have been invented for specialized
+purposes, over stranger domains and with unfamiliar properties. In this
+post I’ll illustrate the single algorithm underlying any FFT, and then
+go through a quick survey of these exotic FFTs and show how we can
+implement them by plugging in a small set of parameters to our common
+algorithm.</p>
+<p>Ultimately we’ll see that an FFT allows us to <strong>change the
+basis</strong> of a function defined on <span
+class="math inline">\(N\)</span> points in <span
+class="math inline">\(N\log(N)\)</span> time. The naive method would be
+to change the basis by applying the linear transformation matrix, and
+matrix multiplication takes ~ <span class="math inline">\(N^3\)</span>
+time, so this is a huge advantage.</p>
+<p>A few notes before we go any further:</p>
+<ul>
+<li>I refer to <strong>an</strong> FFT as a set of parameters that allow
+us to apply the <em>FFT algorithm</em>. This is slightly confusing at
+first but quickly becomes less ambiguous and more convenient. For
+clarity, I only refer to the well-known FFT on the complex plane as the
+<em>classical FFT</em>.</li>
+<li><span class="math inline">\(N\)</span> always means <span
+class="math inline">\(2^n\)</span>, usually when the exponent becomes
+too small.</li>
+<li>I use a lot of subscripts, so vector indices are indicated by
+superscripts <span class="math inline">\(\vec{v}^{(i)}\)</span>.
+Subscripts <span class="math inline">\(\vec{v}_n\)</span> indicate
+labels or parameters.</li>
+</ul>
+<p>This post was written as a Sage notebook. I’ve written a few utility
+functions, but their meaning should be clear from their names. The only
+strange one is <code>bind</code> - this lets me add methods to a class
+after definition, so I can write prose in between.</p>
+<details>
+<summary>
+View imports and utility functions
+</summary>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="op">%</span>display latex</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> collections <span class="im">import</span> namedtuple, defaultdict</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> itertools <span class="im">import</span> islice, chain</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>take <span class="op">=</span> <span class="kw">lambda</span> n, xs: <span class="bu">list</span>(islice(xs, n))</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>interleave <span class="op">=</span> <span class="kw">lambda</span> <span class="op">*</span>xss: <span class="bu">list</span>(chain.from_iterable(<span class="bu">zip</span>(<span class="op">*</span>xss)))</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> iterate(x, f): <span class="cf">yield</span> x<span class="op">;</span> <span class="cf">yield</span> <span class="cf">from</span> iterate(f(x), f)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>powers <span class="op">=</span> <span class="kw">lambda</span> base, start<span class="op">=</span><span class="va">None</span>: iterate(start <span class="kw">or</span> base.parent().one(), <span class="kw">lambda</span> x: x<span class="op">*</span>base)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>dot <span class="op">=</span> <span class="kw">lambda</span> <span class="op">*</span>xss: <span class="bu">sum</span>(product(xs) <span class="cf">for</span> xs <span class="kw">in</span> <span class="bu">zip</span>(<span class="op">*</span>xss))</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>rands <span class="op">=</span> <span class="kw">lambda</span> f, n: [f.random_element() <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n)]</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>bind <span class="op">=</span> <span class="kw">lambda</span> cls: <span class="kw">lambda</span> f: (<span class="bu">setattr</span>(cls, f.<span class="va">__name__</span>, f), f)[<span class="dv">1</span>]</span></code></pre></div>
+</details>
+<h2 id="definition-of-an-fft">Definition of an FFT</h2>
+<p>For a given field <span class="math inline">\(\mathbb{F}\)</span>,
+and a size <span class="math inline">\(N = 2^n\)</span>, an FFT for
+<span class="math inline">\(\mathbb{F}\)</span> and <span
+class="math inline">\(N\)</span> is fully specified by its initial
+domain <span class="math inline">\(D_n\)</span> containing <span
+class="math inline">\(2^n\)</span> points, and a sequence of <span
+class="math inline">\(n\)</span> <em>layers</em>:</p>
+<p><span class="math display">\[\ell_n =
+[(\pi_n,t_n),(\pi_{n-1},t_{n-1}),\dots,(\pi_1,t_1)]\]</span></p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>Layer <span class="op">=</span> namedtuple(<span class="st">&#39;Layer&#39;</span>, <span class="st">&#39;π t&#39;</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>Fft <span class="op">=</span> namedtuple(<span class="st">&#39;Fft&#39;</span>, <span class="st">&#39;domain layers&#39;</span>)</span></code></pre></div>
+<p>Where either <span class="math inline">\(n = 0\)</span>, meaning
+<span class="math inline">\(D_0\)</span> has exactly one point and <span
+class="math inline">\(\ell_0\)</span> is empty, or:</p>
+<ul>
+<li><span class="math inline">\(\pi_n : D_n \rightarrow D_{n-1}\)</span>
+is a function that maps the points of <span
+class="math inline">\(D_n\)</span> to a new domain <span
+class="math inline">\(D_{n-1}\)</span> of half the size, and it is
+<strong>two-to-one</strong>, meaning for any output point <span
+class="math inline">\(y \in D_{n-1}\)</span>, there are exactly two
+input points <span class="math inline">\(x_0,x_1 \in D_n\)</span> that
+map to it: <span class="math inline">\(\pi_n(x_0) = \pi_n(x_1) =
+y\)</span>.</li>
+<li><span class="math inline">\(t_n : D_n \rightarrow
+\mathbb{F}\)</span> is a function from <span
+class="math inline">\(D_n\)</span> to <span
+class="math inline">\(\mathbb{F}\)</span> that
+<strong>distinguishes</strong>, or outputs a different value, for any
+two points in <span class="math inline">\(D_n\)</span> that map to the
+same point in <span class="math inline">\(D_{n-1}\)</span>.</li>
+<li><span class="math inline">\((D_{n-1}, \ell_{n-1})\)</span> is also
+an FFT, with <span class="math inline">\(\ell_{n-1} =
+[(\pi_{n-1},t_{n-1}),\dots,(\pi_1,t_1)]\)</span>, or in python,
+<code>layers[1:]</code>.</li>
+</ul>
+<p>From this definition, we derive a sequence of <span
+class="math inline">\(n+1\)</span> domains <span
+class="math inline">\(D_n, D_{n-1}, ..., D_0\)</span>, each halving in
+size, generated by the maps <span class="math inline">\(\pi_n,
+\pi_{n-1}, ..., \pi_1\)</span>, and distinguishers (commonly referred to
+as <em>twiddles</em>) on each domain except <span
+class="math inline">\(D_0\)</span>.</p>
+<p><span class="math display">\[\begin{CD}
+D_n @&gt;\pi_n&gt;&gt; D_{n-1} @&gt;\pi_{n-1}&gt;&gt; ...
+@&gt;\pi_2&gt;&gt; D_1 @&gt;\pi_1&gt;&gt; D_0       \\
+@VV{t_n}V     @VV{t_{n-1}}V         @.            @VV{t_1}V      \\
+\mathbb{F}   @.        \mathbb{F}       @.                @.        \mathbb{F}   @.
+\end{CD}\]</span></p>
+<p>It will be useful to explicitly build the inverse map <span
+class="math inline">\(\pi_n^{-1}\)</span> that maps every output point
+in <span class="math inline">\(D_{n-1}\)</span> to its two inputs <span
+class="math inline">\(\{x_0,x_1\} \in D_n\)</span> (aka its <a
+href="https://en.wikipedia.org/wiki/Fiber_(mathematics)">fiber</a>),
+along with the values of <span class="math inline">\(t(x_0)\)</span> and
+<span class="math inline">\(t(x_1)\)</span>. Let’s add a method to
+<code>Fft</code> for this, which will also check that our requirements
+are satisfied. The returned dictionary has the form <span
+class="math inline">\(\{ \pi_n(x) \rightarrow ((x_0,t(x_0)),
+(x_1,t(x_1))) \}\)</span>, and the set of all of its keys is exactly
+<span class="math inline">\(D_{n-1}\)</span>.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="at">@bind</span>(Fft)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> build_inverse_map(<span class="va">self</span>: Fft):</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    π, t <span class="op">=</span> <span class="va">self</span>.layers[<span class="dv">0</span>]</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    inv_map <span class="op">=</span> defaultdict(<span class="kw">lambda</span>: [])</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> x <span class="kw">in</span> <span class="va">self</span>.domain:</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>        inv_map[π(x)].append((x, t(x)))</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">assert</span> <span class="bu">all</span>(</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        <span class="bu">len</span>(fiber) <span class="op">==</span> <span class="dv">2</span> <span class="kw">and</span> fiber[<span class="dv">0</span>][<span class="dv">1</span>] <span class="op">!=</span> fiber[<span class="dv">1</span>][<span class="dv">1</span>]</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> fiber <span class="kw">in</span> inv_map.values()</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> inv_map</span></code></pre></div>
+<p>If these requirements are satisfied, we can apply the <em>FFT
+algorithm</em> to any function <span class="math inline">\(f : D_n
+\rightarrow \mathbb{F}\)</span> to get a vector of <span
+class="math inline">\(2^n\)</span> coefficients <span
+class="math inline">\(\vec{c}\)</span>:</p>
+<p><span class="math display">\[\texttt{FFT}_{D_n,\ell_n}(f) =
+\vec{c}\]</span></p>
+<p>Given an arbitrary FFT, we can derive its <em>basis</em> <span
+class="math inline">\(\hat{b}_n\)</span>, which is a vector of
+<em>functions</em> from <span class="math inline">\(D_n \rightarrow
+\mathbb{F}\)</span>. Then we can understand the meaning of our
+coefficients <span class="math inline">\(\vec{c}\)</span>: they’re
+<em>weights</em> of the basis functions, and the weighted sum of the
+basis will reconstruct our original function <span
+class="math inline">\(f\)</span>.</p>
+<p><span class="math display">\[\sum_i \vec{c}^{(i)} \cdot
+\hat{b}_n^{(i)}(x) = f(x)\]</span></p>
+<p>Well… it <em>should</em>, if your FFT forms a basis with enough
+dimensionality to reconstruct the original function. We’ll assume this
+is true, because we’re only interested in applying the FFT algorithm,
+not how useful the result turns out to be.</p>
+<p>I will explain how to derive this basis as it is formed by the
+structure of the FFT, but it’s important to note that the basis is
+purely conceptual: it tells you how to interpret your resulting
+coefficients, but isn’t necessary if you just want to run the
+algorithm.</p>
+<h3 id="the-fft-algorithm-and-our-basis">The FFT algorithm, and our
+basis</h3>
+<p>Given <span class="math inline">\(f\)</span>, a function of <span
+class="math inline">\(D_n\)</span>, the FFT algorithm has three
+steps:</p>
+<ol type="1">
+<li><strong>Decompose</strong> <span class="math inline">\(f\)</span>
+into two functions <span class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span> of the smaller domain <span
+class="math inline">\(D_{n-1}\)</span>, using our current layer <span
+class="math inline">\((\pi_n,t_n)\)</span>, so that:</li>
+</ol>
+<p><span class="math display">\[ f(x) = f_0(\pi_n(x)) + t_n(x) \cdot
+f_1(\pi_n(x)) \]</span></p>
+<ol start="2" type="1">
+<li><strong>Recur</strong>, calling <span
+class="math inline">\(\texttt{FFT}_{D_{n-1},\ell_{n-1}}\)</span> on
+<span class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span> to obtain their coefficients.</li>
+<li><strong>Combine the coefficients</strong> of <span
+class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span> in a “sensible way”, and return these
+combined coefficients.</li>
+</ol>
+<p>Of these steps, decomposition is the easiest to explain, but least
+illustrative. For now, assume we will write a function
+<code>decompose</code> that takes our inverse map and evaluations of our
+function on <span class="math inline">\(D_n\)</span>, and returns
+evaluations of <span class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span> on <span
+class="math inline">\(D_{n-1}\)</span>.</p>
+<p>Then except for <code>decompose</code>, the algorithm can be fully
+described:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="at">@bind</span>(Fft)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fft(<span class="va">self</span>: Fft, f: <span class="bu">dict</span>):</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> <span class="va">self</span>.layers:</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [f[<span class="bu">list</span>(<span class="va">self</span>.domain)[<span class="dv">0</span>]]]</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    inv_map <span class="op">=</span> <span class="va">self</span>.build_inverse_map()</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    f0, f1 <span class="op">=</span> decompose(inv_map, f)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    next_fft <span class="op">=</span> Fft(inv_map.keys(), <span class="va">self</span>.layers[<span class="dv">1</span>:])</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> interleave(next_fft.fft(f0), next_fft.fft(f1))</span></code></pre></div>
+<p>I know it doesn’t make sense yet, I just wanted to get it out of the
+way, since it’s so short.</p>
+<p>We’ll start from the beginning, and using what we’ve laid out above,
+try to arrive at the same solution.</p>
+<p>Our goal is to take a function <span class="math inline">\(f\)</span>
+and return a vector of coefficients <span
+class="math inline">\(\vec{c}\)</span> as weights of our basis functions
+<span class="math inline">\(\hat{b}_n\)</span>, so that the weighted sum
+reconstructs <span class="math inline">\(f\)</span>. (Along the way,
+we’ll need to define <span class="math inline">\(\hat{b}_n\)</span> as
+well). So we need to define the left hand side of this equation:</p>
+<p><span class="math display">\[ \sum_i \vec{c}^{(i)} \cdot
+\hat{b}_n^{(i)}(x) = f(x) \]</span></p>
+<p>In the base case when <span class="math inline">\(n = 0\)</span>, we
+have a single point <span class="math inline">\(x_0\)</span> in our
+domain. <span class="math inline">\(f\)</span> simply maps <span
+class="math inline">\(x_0\)</span> to a single value, so it can be fully
+described by a constant function that always returns that value <span
+class="math inline">\(f(x_0)\)</span>. Defining our single basis
+function as <span class="math inline">\(\hat{b}_0^{(0)}(x) = 1\)</span>,
+we can return <span class="math inline">\(f(x_0)\)</span> as our
+coefficient or weight of this function, fulfilling our criteria that
+<span class="math inline">\(\sum_i \vec{c}^{(i)} \cdot
+\hat{b}_n^{(i)}(x) = \vec{c}^{(0)} \cdot \hat{b}_0^{(0)}(x) = f(x_0)
+\cdot 1 = f(x)\)</span>.</p>
+<p>Otherwise, let’s we’ll continue for <span class="math inline">\(n
+&gt; 0\)</span>. Let’s start by applying our <code>decompose</code>
+function to <span class="math inline">\(f\)</span> to split it into
+<span class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span>, or “the part that depends on <span
+class="math inline">\(t(x)\)</span>” and “the part that doesn’t depend
+on <span class="math inline">\(t(x)\)</span>.”</p>
+<p><span class="math display">\[ \sum_i \vec{c}^{(i)} \cdot
+\hat{b}_n^{(i)}(x) = f_0(\pi_n(x)) + t_n(x) \cdot f_1(\pi_n(x))
+\]</span></p>
+<p>So we started with the values of <span
+class="math inline">\(f(x)\)</span> at every <span
+class="math inline">\(x \in D_n\)</span>, and now have the values of
+<span class="math inline">\(f_0(\pi_n(x))\)</span> and <span
+class="math inline">\(f_1(\pi_n(x))\)</span> at every <span
+class="math inline">\(x \in D_n\)</span>, or equivalently, the values of
+<span class="math inline">\(f_0(y)\)</span> and <span
+class="math inline">\(f_1(y)\)</span> at every point <span
+class="math inline">\(y \in D_{n-1}\)</span>.</p>
+<p>Now we recur, but we need to be careful. We’re going to apply the
+next (smaller) FFT to <span class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span>, <strong>not</strong> <span
+class="math inline">\(f_0 \circ \pi_n\)</span> and <span
+class="math inline">\(f_1 \circ \pi_n\)</span>. What I mean is that for
+<span class="math inline">\(f_0\)</span>, for example, the smaller FFT
+will return coefficients <span class="math inline">\(\vec{c}_0\)</span>
+of the smaller basis <span class="math inline">\(\hat{b}_{n-1}\)</span>,
+which consists of functions of the smaller domain. In order to
+substitute it back into our equation we have to move the <span
+class="math inline">\(\pi_n\)</span> inside to project our domain to the
+smaller domain, and likewise for <span
+class="math inline">\(f_1\)</span>:</p>
+<p><span class="math display">\[
+\sum_i \vec{c}^{(i)} \cdot \hat{b}_n^{(i)}(x) =
+\left[ \sum_i \vec{c}_0^{(i)} \cdot \hat{b}_{n-1}^{(i)}(\pi_n(x))
+\right]
++ t_n(x) \cdot \left[ \sum_i \vec{c}_1^{(i)} \cdot
+\hat{b}_{n-1}^{(i)}(\pi_n(x)) \right]
+\]</span></p>
+<p>Again - we applied the smaller FFT to <span
+class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span>, so in order for the results to
+accurately reconstruct <span
+class="math inline">\(f_0(\pi_n(x))\)</span>, we need to apply the
+smaller basis functions to <span class="math inline">\(\pi_n(x)\)</span>
+instead of <span class="math inline">\(x\)</span>.</p>
+<p>Now remember we’re trying to get expressions for <span
+class="math inline">\(\vec{c}\)</span> and <span
+class="math inline">\(\hat{b}_n\)</span> so our equation is always true.
+We’ll try to express the right hand side as a single sum, so start by
+moving the <span class="math inline">\(t_n(x)\)</span> inside:</p>
+<p><span class="math display">\[
+\sum_i \vec{c}^{(i)} \cdot \hat{b}_n^{(i)}(x) =
+\sum_i \vec{c}_0^{(i)} \cdot \hat{b}_{n-1}^{(i)}(\pi_n(x))
++ \sum_i \vec{c}_1^{(i)} \cdot t_n(x) \cdot
+\hat{b}_{n-1}^{(i)}(\pi_n(x))
+\]</span></p>
+<p>But.. that’s really as far as we can get in the general case. We have
+two different inner-product-like sums, and the only way to structure
+<span class="math inline">\(\vec{c}\)</span> and <span
+class="math inline">\(\hat{b}\)</span> to make the sums always equal is
+to literally just concatenate, setting <span
+class="math inline">\(\vec{c} = \vec{c}_0 || \vec{c}_1\)</span>, and
+similarly for <span class="math inline">\(\hat{b}_n\)</span>, so that’s
+what we do.</p>
+<p>Almost. Actually, we choose to interleave the elements of <span
+class="math inline">\(\vec{c}_0\)</span> and <span
+class="math inline">\(\vec{c}_1\)</span>, but this or any other choice
+is arbitrary. The reason we usually choose to interleave is that <span
+class="math inline">\(t_n\)</span> will usually be a degree-1 function,
+and <span class="math inline">\(\pi_n\)</span> will usually be degree-2.
+So when we interleave, or place the terms from <span
+class="math inline">\(f_0\)</span> into even indices and terms from
+<span class="math inline">\(f_1\)</span> into odd indices:</p>
+<p><span class="math display">\[
+(\vec{c}^{(i)},\hat{b}_n^{(i)}(x)) = \begin{cases}
+    (\vec{c}_0^{(k)}, \hat{b}_{n-1}^{(k)}(\pi_n(x))) &amp; i = 2k \\
+    (\vec{c}_1^{(k)}, t_n(x) \cdot \hat{b}_{n-1}^{(k)}(\pi_n(x))) &amp;
+i = 2k + 1 \\
+\end{cases}
+\]</span></p>
+<p>then the index will correspond to the degree of the basis function,
+assuming the same is true for <span
+class="math inline">\(\hat{b}_{n-1}\)</span>. In other words, assuming
+the degree of <span
+class="math inline">\(\hat{b}_{n-1}^{(k)}(x)\)</span> is <span
+class="math inline">\(k\)</span>, the degree of <span
+class="math inline">\(\hat{b}_{n-1}^{(k)}(\pi_n(x))\)</span> will be
+<span class="math inline">\(2k\)</span>, and the degree of <span
+class="math inline">\(t_n(x) \cdot
+\hat{b}_{n-1}^{(k)}(\pi_n(x))\)</span> will be <span
+class="math inline">\(2k + 1\)</span>, exactly corresponding to our
+outer index <span class="math inline">\(i\)</span>.</p>
+<p>Armed with all of the above math, you should now understand the last
+2 lines of our algorithm:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>    next_fft <span class="op">=</span> Fft(inv_map.keys(), <span class="va">self</span>.layers[<span class="dv">1</span>:])</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> interleave(next_fft.fft(f0), next_fft.fft(f1))</span></code></pre></div>
+<p>We can also add a method to apply each basis function of our FFT to a
+point, and return the results as a vector. This is convenient because we
+can now evaluate our coefficients at any point with
+<code>dot(coeffs, fft.basis(pt))</code>.</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="at">@bind</span>(Fft)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> basis(<span class="va">self</span>: Fft, pt):</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> <span class="va">self</span>.layers:</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [<span class="dv">1</span>]</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    domain, ((π, t), <span class="op">*</span>next_layers) <span class="op">=</span> <span class="va">self</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    next_fft <span class="op">=</span> Fft({ π(x) <span class="cf">for</span> x <span class="kw">in</span> domain }, next_layers)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    next_basis <span class="op">=</span> next_fft.basis(π(pt))</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> interleave(</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>        next_basis,</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>        [t(pt)<span class="op">*</span>b <span class="cf">for</span> b <span class="kw">in</span> next_basis],</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    )</span></code></pre></div>
+<p>At this point it’s also quite trivial to define the inverse FFT,
+which transforms coefficients into evaluations:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="at">@bind</span>(Fft)</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> ifft(<span class="va">self</span>: Fft, coeffs: <span class="bu">list</span>) <span class="op">-&gt;</span> <span class="bu">dict</span>:</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> <span class="va">self</span>.layers:</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> { x: coeffs[<span class="dv">0</span>] <span class="cf">for</span> x <span class="kw">in</span> <span class="va">self</span>.domain }</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    domain, ((π, t), <span class="op">*</span>next_layers) <span class="op">=</span> <span class="va">self</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    next_fft <span class="op">=</span> Fft({ π(x) <span class="cf">for</span> x <span class="kw">in</span> domain }, next_layers)</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    f0 <span class="op">=</span> next_fft.ifft(coeffs[<span class="dv">0</span>::<span class="dv">2</span>])</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    f1 <span class="op">=</span> next_fft.ifft(coeffs[<span class="dv">1</span>::<span class="dv">2</span>])</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>        x: f0[π(x)] <span class="op">+</span> t(x) <span class="op">*</span> f1[π(x)]</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> x <span class="kw">in</span> domain</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    }</span></code></pre></div>
+<h3 id="decomposing-the-function">Decomposing the function</h3>
+<p>At each layer of the FFT, we decompose the function <span
+class="math inline">\(f\)</span> (defined on <span
+class="math inline">\(D_n\)</span>) into two functions <span
+class="math inline">\(f_0\)</span> and <span
+class="math inline">\(f_1\)</span>, each defined on <span
+class="math inline">\(D_{n-1}\)</span>:</p>
+<p><span class="math display">\[ f(X) = f_0(\pi_n(X)) + t_n(X) \cdot
+f_1(\pi_n(X)) \]</span></p>
+<p>To do so, we’ll need to take advantage of the special properties of
+<span class="math inline">\(\pi_n\)</span> and <span
+class="math inline">\(t_n\)</span>. Consider two points <span
+class="math inline">\(x_0\)</span> and <span
+class="math inline">\(x_1\)</span> in <span
+class="math inline">\(D_n\)</span> that map to the same point in <span
+class="math inline">\(D_{n-1}\)</span></p>
+<p><span class="math display">\[
+\begin{align}
+f(x_0) &amp;= f_0(\pi_n(x_0)) + t_n(x_0) \cdot f_1(\pi_n(x_0)) \\
+f(x_1) &amp;= f_0(\pi_n(x_1)) + t_n(x_1) \cdot f_1(\pi_n(x_1))
+\end{align}
+\]</span></p>
+<p>We know the values of <span class="math inline">\(f(x_0)\)</span> and
+<span class="math inline">\(f(x_1)\)</span>, because <span
+class="math inline">\(f\)</span> (either the function or a vector of all
+its evaluations) is given as an input to our algorithm, and we know
+<span class="math inline">\(t_n(x_0)\)</span> and <span
+class="math inline">\(t_n(x_1)\)</span> because <span
+class="math inline">\(t_n\)</span> is a parameter of our FFT. So that’s
+4 unknowns, which is unsolvable… but wait! <span
+class="math inline">\(x_0\)</span> and <span
+class="math inline">\(x_1\)</span> map to the same point, meaning <span
+class="math inline">\(\pi_n(x_0) = \pi_n(x_1)\)</span>, which we’ll
+simply write as <span class="math inline">\(\pi_n(x)\)</span>.
+Rewritten:</p>
+<p><span class="math display">\[
+\begin{align}
+f(x_0) &amp;= f_0(\pi_n(x)) + t_n(x_0) \cdot f_1(\pi_n(x)) \\
+f(x_1) &amp;= f_0(\pi_n(x)) + t_n(x_1) \cdot f_1(\pi_n(x))
+\end{align}
+\]</span></p>
+<p>Now we have 2 equations and 2 unknowns, for which we can solve. If
+you squint, you may recognize this as <span class="math inline">\(y = mx
++ b\)</span>, with <span class="math inline">\(m =
+f_1(\pi_n(x))\)</span> and <span class="math inline">\(b =
+f_0(\pi_n(x))\)</span>, so you may already know how to solve this by
+hand. In my opinion it’s easier to view it as a matrix multiplication,
+for which we use the formula for 2x2 inversion:</p>
+<p><span class="math display">\[\begin{align}
+  \begin{bmatrix}
+    f(x_0) \\
+    f(x_1)
+  \end{bmatrix}
+  &amp;=
+  \begin{bmatrix}
+    1 &amp; t_n(x_0) \\
+    1 &amp; t_n(x_1)
+  \end{bmatrix}
+  \begin{bmatrix}
+    f_0(\pi_n(x)) \\
+    f_1(\pi_n(x))
+  \end{bmatrix} \\
+  \begin{bmatrix}
+    f_0(\pi_n(x)) \\
+    f_1(\pi_n(x))
+  \end{bmatrix}
+  &amp;=
+  \begin{bmatrix}
+    1 &amp; t_n(x_0) \\
+    1 &amp; t_n(x_1)
+  \end{bmatrix}^{-1}
+  \begin{bmatrix}
+    f(x_0) \\
+    f(x_1)
+  \end{bmatrix} \\
+  &amp;=
+  \left(\frac{1}{t_n(x_1) - t_n(x_0)}\right)
+  \begin{bmatrix}
+    t_n(x_1) &amp; -t_n(x_0) \\
+    -1 &amp; 1
+  \end{bmatrix}
+  \begin{bmatrix}
+    f(x_0) \\
+    f(x_1)
+  \end{bmatrix} \\
+  &amp;=
+  \left(\frac{1}{t_n(x_1) - t_n(x_0)}\right)
+  \begin{bmatrix}
+    t_n(x_1) f(x_0) - t_n(x_0) f(x_1) \\
+    f(x_1) - f(x_0)
+  \end{bmatrix}
+\end{align}\]</span></p>
+<p>Which gives us explicit formulas for <span
+class="math inline">\(f_0(\pi_n(x))\)</span> and <span
+class="math inline">\(f_1(\pi_n(x))\)</span> in terms of <span
+class="math inline">\(f\)</span> and <span
+class="math inline">\(t_n\)</span>, which we have access to. You can see
+why we needed <span class="math inline">\(t_n\)</span> to distinguish
+the fibers of <span class="math inline">\(\pi_n\)</span>, guaranteeing
+<span class="math inline">\(t_n(x_0) \neq t_n(x_1)\)</span>, otherwise
+our matrix would not be invertible, giving a division by zero.</p>
+<p>Or we could’ve just asked Sage to do it for us:</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>f_x0, f_x1, t_x0, t_x1 <span class="op">=</span> SR.var(<span class="st">&#39;f_x0 f_x1 t_x0 t_x1&#39;</span>)</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>(matrix([[<span class="dv">1</span>, t_x0],</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>         [<span class="dv">1</span>, t_x1]]).inverse() <span class="op">*</span> vector([f_x0, f_x1])).simplify_rational()</span></code></pre></div>
+<div class="output">
+<p><span class="math inline">\(\displaystyle \left(\frac{f_{x_{1}}
+t_{x_{0}} - f_{x_{0}} t_{x_{1}}}{t_{x_{0}} -
+t_{x_{1}}},\,\frac{f_{x_{0}} - f_{x_{1}}}{t_{x_{0}} -
+t_{x_{1}}}\right)\)</span></p>
+</div>
+<p>Note that our expression for <span
+class="math inline">\(f_1(\pi_n(x)) = \frac{f(x_1) - f(x_0)}{t_n(x_1) -
+t_n(x_0)}\)</span> corresponds to computing the “slope” <span
+class="math inline">\(m\)</span> as rise over run, and the expression
+for <span class="math inline">\(f_0(\pi_n(x))\)</span> corresponds to
+the “y-intercept” <span class="math inline">\(b\)</span> you would get
+if you plugged it back into “<span
+class="math inline">\(y=mx+b\)</span>”.</p>
+<p>If we precompute the inverses of the scalars <span
+class="math inline">\(\left(\frac{1}{t_n(x_1) -
+t_n(x_0)}\right)\)</span> at all points of our domain, we can compute
+our two outputs in 2 multiplies for <span
+class="math inline">\(f_0\)</span> + 2 * (1 subtraction and 1 multiply
+by the inverse scalar each) = 4 multiplies and 2 subtracts.</p>
+<p>In practice, you hope to choose a twiddle <span
+class="math inline">\(t_n\)</span> and clever domains that reduce this
+computation. For example, if we know that <span
+class="math inline">\(t_n(x_0) = -t_n(x_1)\)</span> for all points of
+our domain, as in the multiplicative case, it’s significantly
+cheaper:</p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>_.substitute(t_x1 <span class="op">=</span> <span class="op">-</span>t_x0).simplify_rational()</span></code></pre></div>
+<div class="output">
+<p><span class="math inline">\(\displaystyle \left(\frac{1}{2} \,
+f_{x_{0}} + \frac{1}{2} \, f_{x_{1}},\,\frac{f_{x_{0}} - f_{x_{1}}}{2 \,
+t_{x_{0}}}\right)\)</span></p>
+</div>
+<p>Which can be computed in 1 add, 1 subtract and 2 multiplies. If you
+delay the scaling by <span class="math inline">\(\frac{1}{2}\)</span>
+until the end, you can reduce that to 1 multiply, plus a final scaling
+which ends up being cheaper (<span class="math inline">\(N\)</span>
+total scaling multiplies instead of <span
+class="math inline">\(N\log{N}\)</span>).</p>
+<p>So here’s <code>decompose</code>:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> decompose(inv_map, f):</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    f0 <span class="op">=</span> {</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>        π_x: (f[x0] <span class="op">*</span> t1 <span class="op">-</span> f[x1] <span class="op">*</span> t1) <span class="op">/</span> (t1 <span class="op">-</span> t0)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> π_x, ((x0, t0), (x1, t1)) <span class="kw">in</span> inv_map.items()</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>    f1 <span class="op">=</span> {</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>        π_x: (f[x1] <span class="op">-</span> f[x0]) <span class="op">/</span> (t1 <span class="op">-</span> t0)</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> π_x, ((x0, t0), (x1, t1)) <span class="kw">in</span> inv_map.items()</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> f0, f1</span></code></pre></div>
+<h3 id="again-but-all-in-one-place">Again but all in one place</h3>
+<p>Here’s what it looks like if you combine our three functions into
+one. I find it peaceful to meditate on this snippet of code. Print it
+out and tuck it under your pillow for good luck.</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="at">@bind</span>(Fft)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fft(<span class="va">self</span>: Fft, f: <span class="bu">dict</span>):</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> <span class="va">self</span>.layers:</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [f[<span class="bu">list</span>(<span class="va">self</span>.domain)[<span class="dv">0</span>]]]</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>    domain, ((π, t), <span class="op">*</span>next_layers) <span class="op">=</span> <span class="va">self</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>    inv_map <span class="op">=</span> defaultdict(<span class="kw">lambda</span>: [])</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> x <span class="kw">in</span> domain:</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>        inv_map[π(x)].append(x)</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>    f0 <span class="op">=</span> {</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>        π_x: (f[x0] <span class="op">*</span> t(x1) <span class="op">-</span> f[x1] <span class="op">*</span> t(x0)) <span class="op">/</span> (t(x1) <span class="op">-</span> t(x0))</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> π_x, (x0, x1) <span class="kw">in</span> inv_map.items()</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>    f1 <span class="op">=</span> {</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>        π_x: (f[x1] <span class="op">-</span> f[x0]) <span class="op">/</span> (t(x1) <span class="op">-</span> t(x0))</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> π_x, (x0, x1) <span class="kw">in</span> inv_map.items()</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>    next_fft <span class="op">=</span> Fft(inv_map.keys(), next_layers)</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> interleave(next_fft.fft(f0), next_fft.fft(f1))</span></code></pre></div>
+<p>At each layer, decomposition is linear in <span
+class="math inline">\(N\)</span>, and then we recur twice on problems
+half the size. The number of layers is <span class="math inline">\(\log
+N\)</span>, so total runtime is <span class="math inline">\(N\log
+N\)</span>.</p>
+<h3 id="matrix-representation">Matrix representation</h3>
+<p>Since applying the FFT is change-of-basis, or linear transformation
+of a function, it can be represented by a matrix applied to evaluations
+of the function. Matrix multiplication is <span
+class="math inline">\(n^3\)</span> (ish) so the performance is much
+worse, but we can use this representation for other purposes, such as
+calculating the minimum distance of our FFT when used as a linear
+code.</p>
+<p>The columns of our matrix will come from applying the FFT to
+“one-hot” vectors <span class="math inline">\((0, \dots, 1, \dots,
+0)\)</span>, which you can see as representing the lagrange basis of
+evaluations that is mapped to the FFT basis.</p>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>one_hot <span class="op">=</span> <span class="kw">lambda</span> n, i: vector([<span class="dv">1</span> <span class="cf">if</span> j <span class="op">==</span> i <span class="cf">else</span> <span class="dv">0</span> <span class="cf">for</span> j <span class="kw">in</span> <span class="bu">range</span>(n)])</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="at">@bind</span>(Fft)</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fft_matrix(<span class="va">self</span>: Fft):</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>    domain <span class="op">=</span> <span class="bu">list</span>(<span class="va">self</span>.domain)</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>    N <span class="op">=</span> <span class="bu">len</span>(domain)</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> matrix.column([</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.fft(<span class="bu">dict</span>(<span class="bu">zip</span>(domain, one_hot(N, i))))</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(N)</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>    ])</span></code></pre></div>
+<h2 id="examples">Examples</h2>
+<p>Each of these deserves their own blog post, but at the moment I’ll
+just drop a reference and show that they work for their choices of <span
+class="math inline">\(D\)</span>, <span
+class="math inline">\(\pi\)</span> and <span
+class="math inline">\(t\)</span>.</p>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> demo_fft(field, sizes, fft_factory, symbolic_point):</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> n <span class="kw">in</span> sizes:</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f&#39;n=</span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">:&#39;</span>)</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>        fft <span class="op">=</span> fft_factory(n)</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f&#39;  basis:&#39;</span>, fft.basis(symbolic_point))</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>        set_random_seed(<span class="dv">0</span>)</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>        evals <span class="op">=</span> <span class="bu">dict</span>(<span class="bu">zip</span>(fft.domain, rands(field, <span class="dv">2</span><span class="op">^</span>n)))</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>        <span class="co"># FFT, then evaluating at each original point yields our original values        </span></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>        coeffs <span class="op">=</span> fft.fft(evals)</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>        evals2 <span class="op">=</span> { x: dot(coeffs, fft.basis(x)) <span class="cf">for</span> x <span class="kw">in</span> fft.domain }</span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">assert</span> evals <span class="op">==</span> evals2</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>        <span class="co"># IFFT works</span></span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>        evals3 <span class="op">=</span> fft.ifft(coeffs)</span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">assert</span> evals <span class="op">==</span> evals3</span>
+<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>        <span class="co"># FFT matrix correctly calculates coefficients</span></span>
+<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>        M <span class="op">=</span> fft.fft_matrix()</span>
+<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a>        <span class="cf">assert</span> M <span class="op">*</span> vector([evals[x] <span class="cf">for</span> x <span class="kw">in</span> fft.domain]) <span class="op">==</span> vector(coeffs)</span>
+<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&#39;  tests succeeded!&#39;</span>)</span>
+<span id="cb13-24"><a href="#cb13-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-25"><a href="#cb13-25" aria-hidden="true" tabindex="-1"></a>        IM <span class="op">=</span> M.inverse().T[:<span class="dv">2</span><span class="op">^</span>(n<span class="op">-</span><span class="dv">1</span>)]</span>
+<span id="cb13-26"><a href="#cb13-26" aria-hidden="true" tabindex="-1"></a>        <span class="co"># computing this is very slow</span></span>
+<span id="cb13-27"><a href="#cb13-27" aria-hidden="true" tabindex="-1"></a>        dist <span class="op">=</span> LinearCode(IM).minimum_distance()</span>
+<span id="cb13-28"><a href="#cb13-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">&#39;  code minimum distance:&#39;</span>, dist, <span class="ss">f&#39;(best possible is </span><span class="sc">{</span><span class="dv">2</span><span class="op">^</span>(n<span class="op">-</span><span class="dv">1</span>)<span class="op">+</span><span class="dv">1</span><span class="sc">}</span><span class="ss">)&#39;</span>)</span></code></pre></div>
+<h3 id="multiplicative-fft">Multiplicative FFT</h3>
+<p>The classical FFT works in the multiplicative subgroup of <span
+class="math inline">\(\mathbb{C}\)</span>, with <span
+class="math inline">\(e^{2 \pi i / k}\)</span> the <span
+class="math inline">\(k\)</span>th root of unity. This is actually kind
+of annoying to show off, due to precision issues. If we work with
+floating point numbers, our <span class="math inline">\(\pi\)</span> map
+isn’t exactly two-to-one, and our results won’t be exact. So instead
+I’ll show off the NTT, which is the exact same algorithm, but applied to
+the multiplicative subgroup of a finite field.</p>
+<p>Note the basis is exactly what you would expect.</p>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>SquaringLayer <span class="op">=</span> Layer(</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>    π <span class="op">=</span> <span class="kw">lambda</span> x: x<span class="op">^</span><span class="dv">2</span>,</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>    t <span class="op">=</span> <span class="kw">lambda</span> x: x,</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>GF257 <span class="op">=</span> GF(<span class="dv">2</span><span class="op">^</span><span class="dv">4</span> <span class="op">+</span> <span class="dv">1</span>)</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_ntt(n):</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>    gen <span class="op">=</span> GF257.multiplicative_generator() <span class="op">^</span> (<span class="dv">2</span><span class="op">^</span>(<span class="dv">4</span><span class="op">-</span>n))</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> Fft(</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>        domain <span class="op">=</span> take(<span class="dv">2</span><span class="op">^</span>n, powers(gen)),</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>        layers <span class="op">=</span> [SquaringLayer] <span class="op">*</span> n,</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>demo_fft(GF257, [<span class="dv">2</span>, <span class="dv">3</span>], make_ntt, polygen(GF257, <span class="st">&#39;X&#39;</span>))</span></code></pre></div>
+<div class="output">
+<pre><code>n=2:
+  basis: [1, X, X^2, X^3]
+  tests succeeded!
+  code minimum distance: 3 (best possible is 3)
+n=3:
+  basis: [1, X, X^2, X^3, X^4, X^5, X^6, X^7]
+  tests succeeded!
+  code minimum distance: 5 (best possible is 5)
+</code></pre>
+</div>
+<h3 id="circle-fft">Circle FFT</h3>
+<p>From <a href="https://eprint.iacr.org/2024/278">Circle
+STARKs</a>.</p>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>CircleYLayer <span class="op">=</span> Layer(</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    π <span class="op">=</span> <span class="kw">lambda</span> xy: xy[<span class="dv">0</span>],</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>    t <span class="op">=</span> <span class="kw">lambda</span> xy: xy[<span class="dv">1</span>],</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>CircleXLayer <span class="op">=</span> Layer(</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>    π <span class="op">=</span> <span class="kw">lambda</span> x: <span class="dv">2</span><span class="op">*</span>x<span class="op">^</span><span class="dv">2</span> <span class="op">-</span> <span class="dv">1</span>,</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>    t <span class="op">=</span> <span class="kw">lambda</span> x: x,</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>GF127 <span class="op">=</span> GF(<span class="dv">2</span><span class="op">^</span><span class="dv">7</span> <span class="op">-</span> <span class="dv">1</span>)</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>C127.<span class="op">&lt;</span>i<span class="op">&gt;</span> <span class="op">=</span> GF127.extension(polygen(GF127)<span class="op">^</span><span class="dv">2</span> <span class="op">+</span> <span class="dv">1</span>)</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>circle_gen <span class="op">=</span> C127.multiplicative_generator()<span class="op">^</span>(GF127.order()<span class="op">-</span><span class="dv">1</span>)</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_cfft(n):</span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>    gen <span class="op">=</span> circle_gen<span class="op">^</span>(<span class="dv">2</span><span class="op">^</span>(<span class="dv">7</span><span class="op">-</span>n<span class="op">-</span><span class="dv">1</span>))</span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> Fft(</span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>        domain <span class="op">=</span> take(<span class="dv">2</span><span class="op">^</span>n, powers(gen<span class="op">^</span><span class="dv">2</span>, start<span class="op">=</span>gen)),</span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a>        layers <span class="op">=</span> [CircleYLayer] <span class="op">+</span> [CircleXLayer] <span class="op">*</span> (n<span class="op">-</span><span class="dv">1</span>),</span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a>demo_fft(GF127, [<span class="dv">2</span>, <span class="dv">3</span>], make_cfft, polygens(GF127, <span class="st">&#39;X,Y&#39;</span>))</span></code></pre></div>
+<div class="output">
+<pre><code>n=2:
+  basis: [1, Y, X, X*Y]
+  tests succeeded!
+  code minimum distance: 2 (best possible is 3)
+n=3:
+  basis: [1, Y, X, X*Y, 2*X^2 - 1, 2*X^2*Y - Y, 2*X^3 - X, 2*X^3*Y - X*Y]
+  tests succeeded!
+  code minimum distance: 4 (best possible is 5)
+</code></pre>
+</div>
+<h3 id="additive-ntt">Additive NTT</h3>
+<p>Originally from <a href="https://arxiv.org/abs/1404.3458">Novel
+Polynomial Basis and Its Application to Reed-Solomon Erasure Codes</a>,
+here I’m using the parameters from <a
+href="https://eprint.iacr.org/2024/504">FRI-Binius</a>.</p>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>GF256 <span class="op">=</span> GF(<span class="dv">2</span><span class="op">^</span><span class="dv">8</span>, <span class="bu">repr</span><span class="op">=</span><span class="st">&#39;int&#39;</span>)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>subspace <span class="op">=</span> <span class="kw">lambda</span> n: [GF256.from_integer(i) <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">2</span><span class="op">^</span>n)]</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>beta <span class="op">=</span> <span class="kw">lambda</span> i: GF256.from_integer(<span class="dv">2</span><span class="op">^</span>i)</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>W <span class="op">=</span> <span class="kw">lambda</span> i, x: product(x <span class="op">-</span> u <span class="cf">for</span> u <span class="kw">in</span> subspace(i))</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>q <span class="op">=</span> <span class="kw">lambda</span> i, x: (W(i, beta(i))<span class="op">^</span><span class="dv">2</span> <span class="op">/</span> W(i<span class="op">+</span><span class="dv">1</span>, beta(i<span class="op">+</span><span class="dv">1</span>))) <span class="op">*</span> x <span class="op">*</span> (x <span class="op">+</span> <span class="dv">1</span>)</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_additive(n):</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> Fft(</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>        domain <span class="op">=</span> subspace(n),</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>        layers <span class="op">=</span> [</span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>            Layer(</span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>                <span class="co"># i=i to work around lambda capture quirk</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>                π <span class="op">=</span> <span class="kw">lambda</span> x, i<span class="op">=</span>i: q(i, x),</span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a>                t <span class="op">=</span> <span class="kw">lambda</span> x: x,</span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>            )</span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">list</span>(<span class="bu">range</span>(n))</span>
+<span id="cb18-18"><a href="#cb18-18" aria-hidden="true" tabindex="-1"></a>        ]</span>
+<span id="cb18-19"><a href="#cb18-19" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb18-20"><a href="#cb18-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-21"><a href="#cb18-21" aria-hidden="true" tabindex="-1"></a>demo_fft(GF256, [<span class="dv">2</span>, <span class="dv">3</span>], make_additive, polygen(GF256, <span class="st">&#39;X&#39;</span>))</span></code></pre></div>
+<div class="output">
+<pre><code>n=2:
+  basis: [1, X, 122*X^2 + 122*X, 122*X^3 + 122*X^2]
+  tests succeeded!
+  code minimum distance: 3 (best possible is 3)
+n=3:
+  basis: [1, X, 122*X^2 + 122*X, 122*X^3 + 122*X^2, 251*X^4 + 219*X^2 + 32*X, 251*X^5 + 219*X^3 + 32*X^2, 81*X^6 + 81*X^5 + 170*X^4 + 81*X^3 + 251*X^2, 81*X^7 + 81*X^6 + 170*X^5 + 81*X^4 + 251*X^3]
+  tests succeeded!
+  code minimum distance: 5 (best possible is 5)
+</code></pre>
+</div>
+
+    </body>
+</html>
