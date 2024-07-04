@@ -12,5 +12,5 @@ git checkout publish
 echo "rje.li" >docs/CNAME
 git add -f docs
 git commit -am "publish"
-git push
+git push -f
 git checkout master
