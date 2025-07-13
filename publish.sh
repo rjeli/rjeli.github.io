@@ -8,8 +8,11 @@ fi
 
 git branch -f publish master
 git checkout publish
+
 ./build.py
 echo "rje.li" >docs/CNAME
+touch docs/.nojekyll
+
 git add -f docs
 git commit -am "publish"
 git push -f
