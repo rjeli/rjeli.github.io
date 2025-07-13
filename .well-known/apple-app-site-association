@@ -4,7 +4,7 @@
     "details": [
       {
         "appID": "WD8XTGLME4.li.rje.toka-chat",
-        "paths": ["/app/*"]
+        "paths": ["/toka/*"]
       }
     ]
   }
