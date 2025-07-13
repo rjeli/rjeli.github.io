@@ -12,7 +12,7 @@ Page = '''
         <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
         <title>{title}</title>
         <link rel="stylesheet" href="/res/style.css" />
-        <script 
+        <script
           type="text/javascript"
           src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
           ></script>
@@ -32,6 +32,7 @@ OUT = HERE / 'docs'
 shutil.rmtree(OUT, ignore_errors=True)
 OUT.mkdir()
 shutil.copytree(HERE / 'res', OUT / 'res')
+shutil.copytree(HERE / '.well-known', OUT / '.well-known')
 
 '''
 with tempfile.NamedTemporaryFile(suffix='.template', delete_on_close=False) as f:
